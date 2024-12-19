@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Totally Normal Website</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        canvas {
+            width: 100vw;
+            height: 100vh;
+        }
+        #instructions {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            pointer-events: none;
+            opacity: 0.8;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">nuts</div>
+    <script>
+        let camera, scene, renderer, can;
+        let snakes = [];
+        let triggered = false;
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0xf0f0f0);
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            const canGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1.5, 32);
+            const canMaterial = new THREE.MeshPhongMaterial({ color: 0xd32f2f });
+            can = new THREE.Mesh(canGeometry, canMaterial);
+            scene.add(can);
+
+            for (let i = 0; i < 12; i++) {
+                createSnake();
+            }
+
+            camera.position.z = 5;
+            
+            window.addEventListener('click', onCanClick);
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function createSnake() {
+            // Create an S-curved snake path oriented towards camera
+            const curve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 0.3, 0.3),
+                new THREE.Vector3(0, 0.6, 0.8),
+                new THREE.Vector3(0, 0.8, 1.5)
+            ]);
+
+            const tubeGeometry = new THREE.TubeGeometry(curve, 20, 0.1, 8, false);
+            const stripeTexture = createStripeTexture();
+            
+            const snakeMaterial = new THREE.MeshPhongMaterial({
+                map: stripeTexture,
+                color: 0x4CAF50
+            });
+            
+            const snake = new THREE.Mesh(tubeGeometry, snakeMaterial);
+            
+            // Position snake inside can
+            snake.position.y = -0.75;
+            snake.position.x = (Math.random() - 0.5) * 0.8;
+            snake.position.z = (Math.random() - 0.5) * 0.8;
+            
+            // Orient towards camera initially
+            snake.rotation.x = -Math.PI / 4;
+            
+            snake.scale.set(0.1, 0.1, 0.1);
+            snake.userData.originalY = snake.position.y;
+            snake.userData.originalZ = snake.position.z;
+            
+            scene.add(snake);
+            snakes.push(snake);
+        }
+
+        function createStripeTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#4CAF50';
+            ctx.fillRect(0, 0, 64, 64);
+            
+            ctx.fillStyle = '#81C784';
+            for (let i = 0; i < 64; i += 16) {
+                ctx.fillRect(i, 0, 8, 64);
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(2, 1);
+            
+            return texture;
+        }
+
+        function onCanClick() {
+            if (!triggered) {
+                triggered = true;
+               // document.getElementById('instructions').style.display = 'none';
+                launchSnakes();
+            }
+        }
+
+        function launchSnakes() {
+            snakes.forEach((snake, index) => {
+                const delay = index * 50; // Faster sequence
+                setTimeout(() => {
+                    snake.userData.isLaunching = true;
+                    snake.userData.launchTime = Date.now();
+                    snake.userData.finalY = 1 + Math.random();
+                    snake.userData.finalZ = 3 + Math.random() * 2; // More forward movement
+                    snake.userData.finalScale = 0.8 + Math.random() * 0.4;
+                    snake.userData.rotationSpeed = (Math.random() - 0.5) * 0.1;
+                    snake.userData.finalX = snake.position.x * 2;
+                }, delay);
+            });
+        }
+
+        function updateSnakes() {
+            const now = Date.now();
+            snakes.forEach(snake => {
+                if (snake.userData.isLaunching) {
+                    const elapsed = (now - snake.userData.launchTime) / 1000;
+                    const progress = Math.min(elapsed * 2, 1);
+                    
+                    // Custom easing for more dramatic movement
+                    const eased = 1 - Math.pow(1 - progress, 2);
+                    
+                    // Update position with more emphasis on Z movement
+                    snake.position.y = snake.userData.originalY + (snake.userData.finalY * eased);
+                    snake.position.z = snake.userData.originalZ + (snake.userData.finalZ * eased);
+                    snake.position.x += snake.userData.rotationSpeed * 0.05;
+                    
+                    // Scale with less bounce but more forward momentum
+                    const scaleProgress = Math.min(elapsed * 3, 1);
+                    const bounceScale = 1 + Math.sin(scaleProgress * Math.PI) * 0.1;
+                    const targetScale = snake.userData.finalScale * bounceScale;
+                    snake.scale.set(targetScale, targetScale, targetScale);
+                    
+                    // Rotate snake to face camera more
+                    snake.rotation.x = -Math.PI / 4 + Math.sin(elapsed * 3) * 0.2;
+                    snake.rotation.y += snake.userData.rotationSpeed;
+                    
+                    // Add slight wiggle
+                    snake.rotation.z = Math.sin(elapsed * 10) * 0.1;
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            updateSnakes();
+            renderer.render(scene, camera);
+        }
+
+        init();
+        animate();
+    </script>
+</body>
+</html>
